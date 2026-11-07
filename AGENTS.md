@@ -38,5 +38,5 @@ Save screenshare presets and start a stream from one with no audio dialog.
   `../vencord/tsconfig.json` so Vencord's path aliases resolve through the symlink (no symlink to the tree in this repo:
   it loops, and stylelint runs out of memory). Verify with
   `pnpm build && pnpm test` there. Don't edit Vencord.
-- Don't touch the running Vesktop, its settings, or `~/.config/vesktop`. Don't push, don't add remotes. The user live-tests.
+- Don't touch the running Vesktop, its settings, or `~/.config/vesktop`. Public repo (GitHub HefKer/vc-presets): push only when the user asks. The user live-tests.
 - Small commits to `main` here. README.md: what it does, how to install (Vencord Location → built `dist`), limits.
