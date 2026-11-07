@@ -1,0 +1,6 @@
+{
+    // Lets esbuild/tsc resolve Vencord's path aliases (@api/*, @utils/*, ...) for files in this repo,
+    // which the host only reaches through a symlink. `.host` is a gitignored symlink to the Vencord
+    // tree doing the build; see README.md.
+    "extends": "./.host/tsconfig.json"
+}
