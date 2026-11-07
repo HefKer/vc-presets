@@ -18,12 +18,12 @@ type VideoKind = "none" | "monitor" | "window";
 type AudioKind = "None" | "Entire System" | "apps";
 
 const videoKind = (v: VideoTarget): VideoKind => v == null ? "none" : "monitor" in v ? "monitor" : "window";
-const videoValue = (v: VideoTarget) => v == null ? "" : "monitor" in v ? v.monitor : v.monitorOfWindow;
+const videoValue = (v: VideoTarget) => v == null ? "" : "monitor" in v ? v.monitor : v.window;
 const audioKind = (a: AudioSelection): AudioKind => Array.isArray(a) ? "apps" : a;
 
 function makeVideo(kind: VideoKind, value: string): VideoTarget {
     if (kind === "monitor") return { monitor: value || "DP-3" };
-    if (kind === "window") return { monitorOfWindow: value || "^osu!$" };
+    if (kind === "window") return { window: value || "^osu!$" };
     return null;
 }
 
@@ -64,11 +64,12 @@ function Row({ label, children }: { label: string; children: React.ReactNode; })
     );
 }
 
-function PresetCard({ preset, onChange, onDelete, onStart }: {
+function PresetCard({ preset, onChange, onDelete, onStart, onRetarget }: {
     preset: Preset;
     onChange(p: Preset): void;
     onDelete(): void;
     onStart(): void;
+    onRetarget(): void;
 }) {
     const set = (patch: Partial<Preset>) => onChange({ ...preset, ...patch });
     const vk = videoKind(preset.video);
@@ -84,7 +85,7 @@ function PresetCard({ preset, onChange, onDelete, onStart }: {
                     <Choice<VideoKind>
                         value={vk}
                         options={["none", "monitor", "window"]}
-                        labels={["Pick in menu", "Monitor", "Monitor of window (app_id regex)"]}
+                        labels={["Pick in dialog", "Monitor", "Window (app_id regex)"]}
                         onChange={k => set({ video: makeVideo(k, k === vk ? videoValue(preset.video) : "") })}
                     />
                     {vk !== "none" && (
@@ -130,16 +131,18 @@ function PresetCard({ preset, onChange, onDelete, onStart }: {
             </Row>
             <div className={cl("buttons")}>
                 <Button size="small" variant="positive" onClick={onStart}>Go live</Button>
+                <Button size="small" variant="secondary" disabled={!preset.video} onClick={onRetarget}>Retarget</Button>
                 <Button size="small" variant="dangerSecondary" onClick={onDelete}>Delete</Button>
             </div>
         </div>
     );
 }
 
-export function PresetEditor({ presets, setPresets, onStart }: {
+export function PresetEditor({ presets, setPresets, onStart, onRetarget }: {
     presets: Preset[];
     setPresets(p: Preset[]): void;
     onStart(name: string): void;
+    onRetarget(name: string): void;
 }) {
     const update = (i: number, p: Preset) => {
         if (presets.some((x, j) => j !== i && x.name === p.name)) return;
@@ -156,10 +159,10 @@ export function PresetEditor({ presets, setPresets, onStart }: {
         <div className={cl("editor")}>
             <Heading>Presets</Heading>
             <Paragraph>
-                Names must be unique; VcActions and the API refer to presets by name. Video is a whole monitor
-                (xdg-desktop-portal-wlr can't capture windows): a fixed output, or whichever output shows the
-                matching window. "Pick in menu" leaves the choice to the chooser. App names match any audio
-                stream whose application or node name contains them, case-insensitively.
+                Names must be unique; VcActions and the API refer to presets by name. Video is niri's dynamic
+                cast target, a monitor or the focused window matching an app_id regex; share-cast-target picks
+                it in the Share Screen dialog. "Pick in dialog" leaves the choice to you. App names match any
+                audio stream whose application or node name contains them, case-insensitively.
             </Paragraph>
             {presets.map((p, i) => (
                 <PresetCard
@@ -168,6 +171,7 @@ export function PresetEditor({ presets, setPresets, onStart }: {
                     onChange={np => update(i, np)}
                     onDelete={() => setPresets(presets.filter((_, j) => j !== i))}
                     onStart={() => onStart(p.name)}
+                    onRetarget={() => onRetarget(p.name)}
                 />
             ))}
             <div className={cl("buttons")}>

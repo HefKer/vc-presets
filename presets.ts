@@ -8,8 +8,8 @@ export const RESOLUTIONS = [480, 720, 1080, 1440, 2160] as const;
 export const FRAME_RATES = [15, 30, 60] as const;
 export const CONTENT_HINTS = ["motion", "detail"] as const;
 
-/** An output name, or the output showing the workspace of the window whose app_id matches the regex. null: pick in the chooser menu. */
-export type VideoTarget = { monitor: string; } | { monitorOfWindow: string; } | null;
+/** niri dynamic cast target: an output, or the window whose app_id matches the regex (focused match wins). null: pick in the portal dialog. */
+export type VideoTarget = { monitor: string; } | { window: string; } | null;
 /** "None", "Entire System", or app names (case-insensitive substrings of venmic's application.name / node.name). */
 export type AudioSelection = "None" | "Entire System" | string[];
 
@@ -36,7 +36,7 @@ export const SEED_PRESETS: Preset[] = [
     },
     {
         name: "osu",
-        video: { monitorOfWindow: "^osu!$" },
+        video: { window: "^osu!$" },
         // osu plays through ALSA, so its PipeWire stream is "PipeWire ALSA [osu!]" (node alsa_playback.osu!).
         // The full name also works as the literal rule used before osu starts playing.
         audio: ["PipeWire ALSA [osu!]"],

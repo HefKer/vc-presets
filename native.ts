@@ -4,15 +4,14 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-// Main-process half of VcPresets: tells the xdg-desktop-portal-wlr chooser which
-// output to cast, and answers Vesktop's screenshare picker for a preset-started stream.
+// Main-process half of VcPresets: drives niri's Dynamic Cast Target (through the
+// share-cast-target helper while the portal dialog is up, plain `niri msg` mid-stream)
+// and answers Vesktop's screenshare picker for a preset-started stream.
 
-import { execFile } from "child_process";
+import { ChildProcess, execFile, spawn } from "child_process";
 import { ipcMain, IpcMainInvokeEvent, WebContents } from "electron";
-import { rename, rm, writeFile } from "fs/promises";
-import { join } from "path";
 
-export type VideoTarget = { monitor: string; } | { monitorOfWindow: string; };
+export type VideoTarget = { monitor: string; } | { window: string; };
 export type NativeResult<T = string> = { ok: true; value: T; } | { ok: false; error: string; };
 
 /** Vesktop's main->renderer command channel and the picker command sent over it (Vesktop 1.6.x, src/shared/IpcEvents.ts). */
@@ -32,60 +31,82 @@ function run(bin: string, args: string[]) {
     });
 }
 
-interface NiriWindow { id: number; app_id?: string | null; workspace_id?: number | null; is_focused?: boolean; }
-interface NiriWorkspace { id: number; output?: string | null; }
+interface NiriWindow { id: number; app_id?: string | null; title?: string | null; is_focused?: boolean; }
 
-/** Output name for a preset's video: the monitor itself, or the output showing the matching window's workspace. */
-export async function resolveMonitor(_: IpcMainInvokeEvent, target: VideoTarget, niriBin = "niri"): Promise<NativeResult> {
+/** The `niri msg action` arguments that make the preset's video the dynamic cast target. */
+export async function castAction(_: IpcMainInvokeEvent, target: VideoTarget, niriBin = "niri"): Promise<NativeResult<string[]>> {
     try {
-        if ("monitor" in target) return { ok: true, value: target.monitor };
+        if ("monitor" in target) return { ok: true, value: ["set-dynamic-cast-monitor", target.monitor] };
 
         let re: RegExp;
         try {
-            re = new RegExp(target.monitorOfWindow, "i");
+            re = new RegExp(target.window, "i");
         } catch (e) {
-            return { ok: false, error: `Bad window app_id regex ${target.monitorOfWindow}: ${errorText(e)}` };
+            return { ok: false, error: `Bad window app_id regex ${target.window}: ${errorText(e)}` };
         }
         const windows: NiriWindow[] = JSON.parse(await run(niriBin, ["msg", "--json", "windows"]));
         const matches = windows.filter(w => w.app_id && re.test(w.app_id));
         const win = matches.find(w => w.is_focused) ?? matches[0];
-        if (!win) return { ok: false, error: `No open window whose app_id matches /${target.monitorOfWindow}/i` };
-
-        const workspaces: NiriWorkspace[] = JSON.parse(await run(niriBin, ["msg", "--json", "workspaces"]));
-        const output = workspaces.find(ws => ws.id === win.workspace_id)?.output;
-        if (!output) return { ok: false, error: `Window ${win.app_id} is not on a workspace with an output` };
-        return { ok: true, value: output };
+        if (!win) return { ok: false, error: `No open window whose app_id matches /${target.window}/i` };
+        return { ok: true, value: ["set-dynamic-cast-window", "--id", String(win.id)] };
     } catch (e) {
         return { ok: false, error: errorText(e) };
     }
 }
 
-// --- xdpw chooser hand-off -------------------------------------------------
-//
-// The NixOS-side chooser for xdg-desktop-portal-wlr (chooser_type=simple) reads
-// this file if it is under 30 s old, deletes it, and prints `Monitor: <name>`,
-// so no menu appears. Otherwise it shows a menu of outputs.
-
-function castTargetFile() {
-    const dir = process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.() ?? 1000}`;
-    return join(dir, "xdpw-cast-target");
-}
-
-export async function writeCastTarget(_: IpcMainInvokeEvent, output: string): Promise<NativeResult> {
-    const file = castTargetFile();
+/** Mid-stream retarget: the cast is already running, so plain `niri msg action` is enough. */
+export async function niriAction(_: IpcMainInvokeEvent, args: string[], niriBin = "niri"): Promise<NativeResult> {
     try {
-        // Write then rename, so the chooser never reads a half-written name.
-        await writeFile(`${file}.tmp`, output, { mode: 0o600 });
-        await rename(`${file}.tmp`, file);
-        return { ok: true, value: file };
+        await run(niriBin, ["msg", "action", ...args]);
+        return { ok: true, value: args.join(" ") };
     } catch (e) {
-        return { ok: false, error: `Writing ${file}: ${errorText(e)}` };
+        return { ok: false, error: errorText(e) };
     }
 }
 
-/** Removes a target the chooser didn't consume, so it can't hijack a later manual share. */
-export async function clearCastTarget() {
-    await rm(castTargetFile(), { force: true }).catch(() => { });
+// --- share-cast-target -----------------------------------------------------
+//
+// niri holds back the stream, and so the portal's reply, until a dynamic target
+// is set, so the target can only be set after the GNOME "Share Screen" dialog.
+// share-cast-target (from the NixOS config) waits for that dialog, picks "niri
+// Dynamic Cast Target" by keystrokes, presses Share, then runs
+// `niri msg action <args>`. Exit 0 = shared; otherwise the reason is on stderr.
+// It is spawned just before the capture and not awaited, since the capture is
+// what opens the dialog.
+
+export interface ShareStatus { running: boolean; code: number | null; error: string; }
+
+let share: { child: ChildProcess | null; status: ShareStatus; } | null = null;
+
+export function spawnShare(_: IpcMainInvokeEvent, bin: string, args: string[]): ShareStatus {
+    killShare();
+    const status: ShareStatus = { running: true, code: null, error: "" };
+    const entry = { child: null as ChildProcess | null, status };
+    share = entry;
+    try {
+        const child = spawn(bin, args, { detached: true, stdio: ["ignore", "ignore", "pipe"] });
+        entry.child = child;
+        child.stderr?.on("data", d => { status.error = (status.error + d).slice(-2000); });
+        child.on("error", e => { status.running = false; status.error ||= `${bin}: ${e.message}`; });
+        child.on("exit", (code, signal) => {
+            status.running = false;
+            status.code = code;
+            if (code !== 0 && !status.error) status.error = `${bin} exited with ${signal ?? code}`;
+            entry.child = null;
+        });
+    } catch (e) {
+        status.running = false;
+        status.error = `${bin}: ${errorText(e)}`;
+    }
+    return { ...status };
+}
+
+export function shareStatus(): ShareStatus | null {
+    return share && { ...share.status, error: share.status.error.trim() };
+}
+
+export function killShare() {
+    if (share?.child && share.status.running) share.child.kill();
 }
 
 // --- Vesktop picker interception -------------------------------------------
