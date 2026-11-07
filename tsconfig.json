@@ -1,6 +1,8 @@
 {
-    // Lets esbuild/tsc resolve Vencord's path aliases (@api/*, @utils/*, ...) for files in this repo,
-    // which the host only reaches through a symlink. `.host` is a gitignored symlink to the Vencord
-    // tree doing the build; see README.md.
-    "extends": "./.host/tsconfig.json"
+    // esbuild and tsc resolve files reached through the host's src/userplugins symlink by their real
+    // path, so Vencord's path aliases (@api/*, @utils/*, ...) must come from here. Extend the combined
+    // build tree directly: a symlink to it inside this repo would loop (vencord/src/userplugins/vcPresets
+    // -> here -> vencord) and send stylelint's glob into endless recursion. To build in another Vencord
+    // tree, change this path.
+    "extends": "../vencord/tsconfig.json"
 }
