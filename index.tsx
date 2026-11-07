@@ -38,7 +38,7 @@ export const settings = definePluginSettings({
     },
     niriPath: {
         type: OptionType.STRING,
-        description: "niri binary used for `niri msg` (a full path if Vesktop's PATH lacks it)",
+        description: "niri binary used for `niri msg` to find a window's monitor (a full path if Vesktop's PATH lacks it)",
         default: "niri"
     }
 });
@@ -90,12 +90,27 @@ function findPreset(name: string): Preset {
     return p;
 }
 
+/** Hands the preset's output to the xdpw chooser; with no video, clears any stale target so the menu shows. */
 async function applyVideoTarget(p: Preset) {
-    if (!p.video) return;
-    const target = "monitor" in p.video ? { monitor: p.video.monitor } : { windowAppId: p.video.windowAppId };
-    const res = await Native.setCastTarget(target, settings.store.niriPath || "niri");
-    if (!res.ok) throw new Error(`niri: ${res.error}`);
-    logger.info("Cast target ->", res.detail);
+    if (!p.video) {
+        await Native.clearCastTarget();
+        return;
+    }
+    const target = "monitor" in p.video ? { monitor: p.video.monitor } : { monitorOfWindow: p.video.monitorOfWindow };
+    const output = await Native.resolveMonitor(target, settings.store.niriPath || "niri");
+    if (!output.ok) throw new Error(output.error);
+    const written = await Native.writeCastTarget(output.value);
+    if (!written.ok) throw new Error(written.error);
+    logger.info("Cast target ->", output.value);
+}
+
+/** Presets saved before the xdpw switch used `{ windowAppId }` (niri dynamic cast); cast the window's monitor instead. */
+function migratePresets() {
+    const presets = settings.store.presets as any[];
+    if (!presets.some(p => p.video && "windowAppId" in p.video)) return;
+    settings.store.presets = presets.map(p => p.video && "windowAppId" in p.video
+        ? { ...p, video: { monitorOfWindow: p.video.windowAppId } }
+        : p);
 }
 
 async function startAudio(p: Preset) {
@@ -170,7 +185,7 @@ function onStreamClose({ streamKey }: { streamKey: string; }) {
 
 const plugin = definePlugin({
     name: "VcPresets",
-    description: "Screenshare presets: one call sets niri's cast target, venmic audio and quality, and goes live without Vesktop's audio dialog.",
+    description: "Screenshare presets: one call picks the monitor for xdg-desktop-portal-wlr, sets venmic audio and quality, and goes live without Vesktop's audio dialog.",
     authors: [{ name: "HefKer", id: 0n }],
     settings,
 
@@ -196,6 +211,7 @@ const plugin = definePlugin({
     },
 
     start() {
+        migratePresets();
         wrapGetDisplayMedia();
         FluxDispatcher.subscribe("STREAM_CLOSE", onStreamClose);
     },
@@ -233,14 +249,14 @@ const plugin = definePlugin({
             const armedAt = Date.now();
             await Native.armPicker({ contentHint: p.contentHint }, ARM_MS);
 
-            let sourceId: string;
-            try {
-                // Discord's web Go Live path: getDisplayMedia via the media engine, then STREAM_START with the track id.
-                // Run inside a native executeJavaScript(userGesture) so Chromium's transient-activation rule can't block it.
-                sourceId = await Native.captureWithGesture(size(p));
-            } catch (e) {
-                throw new Error(`Screen capture was cancelled or failed: ${e instanceof Error ? e.message : e}`);
+            // Discord's web Go Live path: getDisplayMedia via the media engine, then STREAM_START with the track id.
+            // Run inside a native executeJavaScript(userGesture) so Chromium's transient-activation rule can't block it.
+            const capture = await Native.captureWithGesture(size(p));
+            if (!capture.ok) {
+                logger.error("Capture failed:", capture.error);
+                throw new Error(`Screen capture was cancelled or failed: ${capture.error.split("\n")[0]}`);
             }
+            const sourceId = capture.value;
 
             startStreamAction(guildId, channelId, {
                 pid: null,
@@ -258,6 +274,7 @@ const plugin = definePlugin({
         } catch (e) {
             active = null;
             Native.disarmPicker();
+            Native.clearCastTarget();
             if (!ownStreamKey()) VesktopNative?.virtmic?.stop();
             throw e;
         } finally {
@@ -269,12 +286,6 @@ const plugin = definePlugin({
         const key = ownStreamKey();
         if (key) stopStreamAction(key);
         active = null;
-    },
-
-    async retarget(name: string): Promise<void> {
-        const p = findPreset(name);
-        if (!p.video) throw new Error(`Preset "${name}" has no video target`);
-        await applyVideoTarget(p);
     },
 
     /** Called by native captureWithGesture inside executeJavaScript; returns the desktop source id. */

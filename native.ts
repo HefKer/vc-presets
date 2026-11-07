@@ -4,18 +4,24 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-// Main-process half of VcPresets: drives niri's Dynamic Cast Target and
-// answers Vesktop's screenshare picker for a preset-started stream.
+// Main-process half of VcPresets: tells the xdg-desktop-portal-wlr chooser which
+// output to cast, and answers Vesktop's screenshare picker for a preset-started stream.
 
 import { execFile } from "child_process";
 import { ipcMain, IpcMainInvokeEvent, WebContents } from "electron";
+import { rename, rm, writeFile } from "fs/promises";
+import { join } from "path";
 
-export type CastTarget = { monitor: string; } | { windowAppId: string; } | { clear: true; };
-export type NativeResult = { ok: true; detail: string; } | { ok: false; error: string; };
+export type VideoTarget = { monitor: string; } | { monitorOfWindow: string; };
+export type NativeResult<T = string> = { ok: true; value: T; } | { ok: false; error: string; };
 
 /** Vesktop's main->renderer command channel and the picker command sent over it (Vesktop 1.6.x, src/shared/IpcEvents.ts). */
 const IPC_COMMAND = "VCD_IPC_COMMAND";
 const SCREEN_SHARE_PICKER = "screenshare:picker";
+
+function errorText(e: unknown) {
+    return e instanceof Error ? e.message : String(e);
+}
 
 function run(bin: string, args: string[]) {
     return new Promise<string>((resolve, reject) => {
@@ -26,35 +32,60 @@ function run(bin: string, args: string[]) {
     });
 }
 
-interface NiriWindow { id: number; app_id?: string | null; title?: string | null; is_focused?: boolean; }
+interface NiriWindow { id: number; app_id?: string | null; workspace_id?: number | null; is_focused?: boolean; }
+interface NiriWorkspace { id: number; output?: string | null; }
 
-export async function setCastTarget(_: IpcMainInvokeEvent, target: CastTarget, niriBin = "niri"): Promise<NativeResult> {
+/** Output name for a preset's video: the monitor itself, or the output showing the matching window's workspace. */
+export async function resolveMonitor(_: IpcMainInvokeEvent, target: VideoTarget, niriBin = "niri"): Promise<NativeResult> {
     try {
-        if ("clear" in target) {
-            await run(niriBin, ["msg", "action", "clear-dynamic-cast-target"]);
-            return { ok: true, detail: "cleared" };
-        }
-        if ("monitor" in target) {
-            await run(niriBin, ["msg", "action", "set-dynamic-cast-monitor", target.monitor]);
-            return { ok: true, detail: `monitor ${target.monitor}` };
-        }
+        if ("monitor" in target) return { ok: true, value: target.monitor };
 
         let re: RegExp;
         try {
-            re = new RegExp(target.windowAppId, "i");
+            re = new RegExp(target.monitorOfWindow, "i");
         } catch (e) {
-            return { ok: false, error: `Bad window app_id regex ${target.windowAppId}: ${e}` };
+            return { ok: false, error: `Bad window app_id regex ${target.monitorOfWindow}: ${errorText(e)}` };
         }
         const windows: NiriWindow[] = JSON.parse(await run(niriBin, ["msg", "--json", "windows"]));
         const matches = windows.filter(w => w.app_id && re.test(w.app_id));
         const win = matches.find(w => w.is_focused) ?? matches[0];
-        if (!win) return { ok: false, error: `No open window whose app_id matches /${target.windowAppId}/i` };
+        if (!win) return { ok: false, error: `No open window whose app_id matches /${target.monitorOfWindow}/i` };
 
-        await run(niriBin, ["msg", "action", "set-dynamic-cast-window", "--id", String(win.id)]);
-        return { ok: true, detail: `window ${win.id} (${win.app_id}: ${win.title ?? ""})` };
+        const workspaces: NiriWorkspace[] = JSON.parse(await run(niriBin, ["msg", "--json", "workspaces"]));
+        const output = workspaces.find(ws => ws.id === win.workspace_id)?.output;
+        if (!output) return { ok: false, error: `Window ${win.app_id} is not on a workspace with an output` };
+        return { ok: true, value: output };
     } catch (e) {
-        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        return { ok: false, error: errorText(e) };
     }
+}
+
+// --- xdpw chooser hand-off -------------------------------------------------
+//
+// The NixOS-side chooser for xdg-desktop-portal-wlr (chooser_type=simple) reads
+// this file if it is under 30 s old, deletes it, and prints `Monitor: <name>`,
+// so no menu appears. Otherwise it shows a menu of outputs.
+
+function castTargetFile() {
+    const dir = process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.() ?? 1000}`;
+    return join(dir, "xdpw-cast-target");
+}
+
+export async function writeCastTarget(_: IpcMainInvokeEvent, output: string): Promise<NativeResult> {
+    const file = castTargetFile();
+    try {
+        // Write then rename, so the chooser never reads a half-written name.
+        await writeFile(`${file}.tmp`, output, { mode: 0o600 });
+        await rename(`${file}.tmp`, file);
+        return { ok: true, value: file };
+    } catch (e) {
+        return { ok: false, error: `Writing ${file}: ${errorText(e)}` };
+    }
+}
+
+/** Removes a target the chooser didn't consume, so it can't hijack a later manual share. */
+export async function clearCastTarget() {
+    await rm(castTargetFile(), { force: true }).catch(() => { });
 }
 
 // --- Vesktop picker interception -------------------------------------------
@@ -112,8 +143,23 @@ export function lastPickerHandled() {
 /**
  * Runs the renderer's capture call as a user gesture, so getDisplayMedia works
  * from a global hotkey or timer too, not only from a click in the window.
+ * Rejections are serialized in the page: executeJavaScript would otherwise
+ * turn a DOMException or plain object into "[object Object]".
  */
-export function captureWithGesture(e: IpcMainInvokeEvent, size: { width: number; height: number; }): Promise<string> {
+export async function captureWithGesture(e: IpcMainInvokeEvent, size: { width: number; height: number; }): Promise<NativeResult> {
     const w = Math.round(Number(size.width)), h = Math.round(Number(size.height));
-    return e.sender.executeJavaScript(`Vencord.Plugins.plugins.VcPresets._capture(${w}, ${h})`, true);
+    const code = `Promise.resolve().then(() => Vencord.Plugins.plugins.VcPresets._capture(${w}, ${h})).then(
+        value => ({ ok: true, value: String(value) }),
+        e => {
+            let text;
+            if (e instanceof Error || (e && typeof e === "object" && "message" in e)) text = [e.name, e.message].filter(Boolean).join(": ") + (e.stack ? "\\n" + e.stack : "");
+            else if (e && typeof e === "object") { try { text = JSON.stringify(e); } catch { text = String(e); } }
+            else text = String(e);
+            return { ok: false, error: text };
+        })`;
+    try {
+        return await e.sender.executeJavaScript(code, true);
+    } catch (err) {
+        return { ok: false, error: `executeJavaScript: ${errorText(err)}` };
+    }
 }

@@ -18,12 +18,12 @@ type VideoKind = "none" | "monitor" | "window";
 type AudioKind = "None" | "Entire System" | "apps";
 
 const videoKind = (v: VideoTarget): VideoKind => v == null ? "none" : "monitor" in v ? "monitor" : "window";
-const videoValue = (v: VideoTarget) => v == null ? "" : "monitor" in v ? v.monitor : v.windowAppId;
+const videoValue = (v: VideoTarget) => v == null ? "" : "monitor" in v ? v.monitor : v.monitorOfWindow;
 const audioKind = (a: AudioSelection): AudioKind => Array.isArray(a) ? "apps" : a;
 
 function makeVideo(kind: VideoKind, value: string): VideoTarget {
     if (kind === "monitor") return { monitor: value || "DP-3" };
-    if (kind === "window") return { windowAppId: value || "^osu" };
+    if (kind === "window") return { monitorOfWindow: value || "^osu!$" };
     return null;
 }
 
@@ -84,14 +84,14 @@ function PresetCard({ preset, onChange, onDelete, onStart }: {
                     <Choice<VideoKind>
                         value={vk}
                         options={["none", "monitor", "window"]}
-                        labels={["Leave cast target", "Monitor", "Window (app_id regex)"]}
+                        labels={["Pick in menu", "Monitor", "Monitor of window (app_id regex)"]}
                         onChange={k => set({ video: makeVideo(k, k === vk ? videoValue(preset.video) : "") })}
                     />
                     {vk !== "none" && (
                         <Field
                             key={vk}
                             value={videoValue(preset.video)}
-                            placeholder={vk === "monitor" ? "DP-3" : "^osu"}
+                            placeholder={vk === "monitor" ? "DP-3" : "^osu!$"}
                             onCommit={v => set({ video: makeVideo(vk, v.trim()) })}
                         />
                     )}
@@ -156,9 +156,10 @@ export function PresetEditor({ presets, setPresets, onStart }: {
         <div className={cl("editor")}>
             <Heading>Presets</Heading>
             <Paragraph>
-                Names must be unique; VcActions and the API refer to presets by name. Video drives niri's
-                Dynamic Cast Target, so pick "Dynamic Cast Target" in the portal dialog. App names match
-                venmic's application name, case-insensitively (exact, else prefix).
+                Names must be unique; VcActions and the API refer to presets by name. Video is a whole monitor
+                (xdg-desktop-portal-wlr can't capture windows): a fixed output, or whichever output shows the
+                matching window. "Pick in menu" leaves the choice to the chooser. App names match any audio
+                stream whose application or node name contains them, case-insensitively.
             </Paragraph>
             {presets.map((p, i) => (
                 <PresetCard
