@@ -1,0 +1,49 @@
+.vc-presets-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.vc-presets-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+}
+
+.vc-presets-row {
+    display: grid;
+    grid-template-columns: 80px 1fr;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-default);
+}
+
+.vc-presets-label {
+    font-weight: 600;
+}
+
+.vc-presets-pair {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.vc-presets-pair > * {
+    flex: 1;
+}
+
+.vc-presets-select {
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border-subtle);
+    background: var(--input-background, var(--background-secondary));
+    color: var(--text-default);
+}
+
+.vc-presets-buttons {
+    display: flex;
+    gap: 8px;
+}
