@@ -16,3 +16,17 @@ the API, the hook and why it was chosen, install and limits; keep it in sync.
   `pnpm build && pnpm test` there. Fix alias trouble from this repo (see `tsconfig.json`), never by editing Vencord.
 - Hands off the running Vesktop, its settings, and `~/.config/vesktop`. The user live-tests.
 - Public repo (GitHub HefKer/vc-presets): small commits to `main`; push only when the user asks.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on HefKer/vc-presets via `gh`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `GLOSSARY.md` + `docs/adr/`. See `docs/agents/domain.md`.
