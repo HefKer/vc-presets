@@ -14,7 +14,6 @@ the API, the hook and why it was chosen, install and limits; keep it in sync.
   `stopStream` and `retarget` at runtime. Keep names and behaviour stable.
 - Build host: the combined tree `../vencord` (both plugins symlinked into `src/userplugins/`). Verify with
   `pnpm build && pnpm test` there. Fix alias trouble from this repo (see `tsconfig.json`), never by editing Vencord.
-- Hands off the running Vesktop, its settings, and `~/.config/vesktop`. The user live-tests.
 - Public repo (GitHub HefKer/vc-presets): small commits to `main`; push only when the user asks.
 
 ## Agent skills
