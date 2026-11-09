@@ -210,7 +210,7 @@ function onStreamClose({ streamKey }: { streamKey: string; }) {
 const plugin = definePlugin({
     name: "VcPresets",
     description: "Screenshare presets: one call sets niri's dynamic cast target, venmic audio and quality, and goes live without Vesktop's audio dialog.",
-    authors: [{ name: "HefKer", id: 0n }],
+    authors: [{ name: "hefker", id: 334442905567756288n }],
     settings,
 
     patches: [
