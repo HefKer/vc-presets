@@ -10,7 +10,7 @@ the API, the hook and why it was chosen, install and limits; keep it in sync.
 - `share-cast-target` comes from the user's NixOS config: exit 0 = shared, non-zero = failed with the reason on stderr.
 
 ## Rules
-- **The API is a contract**: sibling plugin `VcActions` (`../vc-actions`) calls `listPresets`, `startPreset`,
+- **The API is a contract**: sibling plugin `QuickActions` (formerly `VcActions`, repo `../vc-actions`) calls `listPresets`, `startPreset`,
   `stopStream` and `retarget` at runtime. Keep names and behaviour stable.
 - Build host: the combined tree `../vencord` (both plugins symlinked into `src/userplugins/`). Verify with
   `pnpm build && pnpm test` there. Fix alias trouble from this repo (see `tsconfig.json`), never by editing Vencord.

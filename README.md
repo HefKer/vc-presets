@@ -23,7 +23,7 @@ that name starts playing.
 
 ## API
 
-`VcActions` calls these at runtime through `Vencord.Plugins.plugins.VcPresets`:
+[`QuickActions`](https://github.com/HefKer/vc-actions) (formerly VcActions) calls these at runtime through `Vencord.Plugins.plugins.VcPresets`:
 
 - `listPresets(): Preset[]`: returns a copy.
 - `startPreset(name): Promise<void>`: throws a readable `Error` if you're not in a voice channel, the

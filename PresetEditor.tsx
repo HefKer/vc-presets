@@ -159,7 +159,7 @@ export function PresetEditor({ presets, setPresets, onStart, onRetarget }: {
         <div className={cl("editor")}>
             <Heading>Presets</Heading>
             <Paragraph>
-                Names must be unique; VcActions and the API refer to presets by name. Video is niri's dynamic
+                Names must be unique; QuickActions and the API refer to presets by name. Video is niri's dynamic
                 cast target, a monitor or the focused window matching an app_id regex; share-cast-target picks
                 it in the Share Screen dialog. "Pick in dialog" leaves the choice to you. App names match any
                 audio stream whose application or node name contains them, case-insensitively.

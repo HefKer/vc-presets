@@ -247,7 +247,7 @@ const plugin = definePlugin({
         active = null;
     },
 
-    // --- public API (VcActions calls these through Vencord.Plugins.plugins.VcPresets) ---
+    // --- public API (QuickActions, formerly VcActions, calls these through Vencord.Plugins.plugins.VcPresets) ---
 
     listPresets(): Preset[] {
         return clonePresets(settings.store.presets);
